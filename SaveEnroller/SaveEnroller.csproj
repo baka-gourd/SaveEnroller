@@ -53,6 +53,9 @@
 		<Reference Include="Unity.Mathematics">
 			<Private>false</Private>
 		</Reference>
+    <Reference Include="Colossal.PSI.Common">
+      <Private>false</Private>
+    </Reference>
 	</ItemGroup>
 
 	<ItemGroup>
@@ -71,5 +74,25 @@
 		<None Include="$(ModPropsFile)" Link="Properties\Mod.props" />
 		<None Include="$(ModTargetsFile)" Link="Properties\Mod.targets" />
 	</ItemGroup>
+  <Target Name="BuildSaveEnrollerDaemon" BeforeTargets="PreBuildEvent">
+    <!-- Set the path to the SaveEnroller.Daemon project -->
+    <PropertyGroup>
+      <SaveEnrollerDaemonProjectPath>..\SaveEnroller.Daemon\SaveEnroller.Daemon.csproj</SaveEnrollerDaemonProjectPath>
+      <SaveEnrollerDaemonOutputPath>$(MSBuildThisFileDirectory)\bin\DaemonBuild</SaveEnrollerDaemonOutputPath>
+      <SaveEnrollerDaemonRuntimeIdentifier>win-x64</SaveEnrollerDaemonRuntimeIdentifier>
+    </PropertyGroup>
+    <RemoveDir Directories="$(SaveEnrollerDaemonOutputPath)" />
+    <Exec Command="dotnet publish &quot;$(SaveEnrollerDaemonProjectPath)&quot; -c Release -r $(SaveEnrollerDaemonRuntimeIdentifier) -o &quot;$(SaveEnrollerDaemonOutputPath)&quot;" />
 
+    <ItemGroup>
+      <BuiltFiles Include="$(SaveEnrollerDaemonOutputPath)\**\*.exe" />
+    </ItemGroup>
+    <Copy SourceFiles="@(BuiltFiles)" DestinationFolder="$(OutputPath)" />
+  </Target>
+
+  <Target Name="SetupAttributes" BeforeTargets="BeforeBuild">
+    <XmlPoke XmlInputPath="$(PublishConfigurationPath)" Value="$([System.IO.File]::ReadAllText($(ProjectDir)/Description.md))" Query="//LongDescription" />
+    <XmlPoke XmlInputPath="$(PublishConfigurationPath)" Value="$([System.IO.File]::ReadAllText($(ProjectDir)/ChangeLog.md))" Query="//ChangeLog" />
+    <XmlPoke XmlInputPath="$(PublishConfigurationPath)" Value="$(Version)" Query="//ModVersion/@Value" />
+  </Target>
 </Project>

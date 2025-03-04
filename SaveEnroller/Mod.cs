@@ -1,39 +1,73 @@
-﻿using Colossal.IO.AssetDatabase;
+using Colossal.IO.AssetDatabase;
 using Colossal.Logging;
+
 using Game;
 using Game.Modding;
 using Game.SceneFlow;
 
+using System.Diagnostics;
+using System.IO;
+using Colossal.PSI.Environment;
+
 namespace SaveEnroller
 {
-    public class Mod : IMod
+    public class SaveEnroller : IMod
     {
-        public static ILog log = LogManager.GetLogger($"{nameof(SaveEnroller)}.{nameof(Mod)}").SetShowsErrorsInUI(false);
-        private Setting m_Setting;
+        public int ProcessId { get; set; }
+        public static ILog Logger = LogManager.GetLogger($"{nameof(SaveEnroller)}").SetShowsErrorsInUI(false);
+        private Setting Setting;
+        public static string Version = "";
 
         public void OnLoad(UpdateSystem updateSystem)
         {
-            log.Info(nameof(OnLoad));
+            Logger.Info(nameof(OnLoad));
 
             if (GameManager.instance.modManager.TryGetExecutableAsset(this, out var asset))
-                log.Info($"Current mod asset at {asset.path}");
+            {
+                Logger.Info($"Current mod asset at {asset.path}");
+                ProcessId = Process.GetCurrentProcess().Id;
+                Version = asset.version.ToString();
+                LaunchDaemon(Path.Combine(Path.GetDirectoryName(asset.path) ?? "", "SaveEnroller.Daemon.exe"),
+                    $"\"{Path.Combine(EnvPath.kUserDataPath, "ModsData")}\" \"{Path.Combine(EnvPath.kUserDataPath, "Saves")}\" {ProcessId}");
+            }
 
-            m_Setting = new Setting(this);
-            m_Setting.RegisterInOptionsUI();
-            GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(m_Setting));
+            Setting = new Setting(this);
+            Setting.RegisterInOptionsUI();
+            GameManager.instance.localizationManager.AddSource("en-US", new LocaleEN(Setting));
 
 
-            AssetDatabase.global.LoadSettings(nameof(SaveEnroller), m_Setting, new Setting(this));
+            AssetDatabase.global.LoadSettings(nameof(SaveEnroller), Setting, new Setting(this));
         }
 
         public void OnDispose()
         {
-            log.Info(nameof(OnDispose));
-            if (m_Setting != null)
+            Logger.Info(nameof(OnDispose));
+            if (Setting != null)
             {
-                m_Setting.UnregisterInOptionsUI();
-                m_Setting = null;
+                Setting.UnregisterInOptionsUI();
+                Setting = null;
             }
+        }
+
+        public static void LaunchDaemon(string daemonPath, string arguments)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = daemonPath,
+                Arguments = arguments,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+
+            Process process = new Process
+            {
+                StartInfo = startInfo
+            };
+
+            process.Start();
         }
     }
 }
