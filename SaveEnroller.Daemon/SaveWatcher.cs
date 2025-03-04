@@ -13,7 +13,6 @@ namespace SaveEnroller.Daemon
         private DirectoryInfo TargetStorageDirectory { get; set; }
         private DirectoryInfo VersionsDirectory { get; set; }
         private TrackHelper Tracker { get; set; }
-        private bool IsInitializing { get; set; } = true;
 
         public SaveWatcher(string savePath, string storagePath, string trackFile)
         {
@@ -37,13 +36,7 @@ namespace SaveEnroller.Daemon
             VersionsDirectory = TargetStorageDirectory.CreateSubdirectory("versions");
             Tracker = new TrackHelper(trackFile);
 
-            // Scan existing files during initialization, with write prevention flag set
-            IsInitializing = true;
             ScanOnStart(savePath);
-
-            // Mark initialization as complete
-            IsInitializing = false;
-            // Note: Timer is already started in TrackHelper constructor
         }
 
         private void ScanOnStart(string savePath)
@@ -55,9 +48,10 @@ namespace SaveEnroller.Daemon
                 try
                 {
                     using var fs = WaitUntilFileIsReady(file);
+                    if (!Util.IsZipFileValid(fs)) continue;
                     var sha = CalculateSha1(fs);
                     // During initialization, check if it's a new record
-                    var first = Tracker.UpdateRecord(Path.GetFileName(file), sha,out var duplicate);
+                    var first = Tracker.UpdateRecord(Path.GetFileName(file), sha, out var duplicate);
                     if (!duplicate)
                     {
                         StoreVersion(fs, first);
@@ -77,9 +71,10 @@ namespace SaveEnroller.Daemon
             try
             {
                 using var fs = WaitUntilFileIsReady(file);
+                if (!Util.IsZipFileValid(fs)) return;
                 var sha = CalculateSha1(fs);
                 fs.Seek(0, SeekOrigin.Begin);
-                var first = Tracker.UpdateRecord(Path.GetFileName(file), sha,out var duplicate);
+                var first = Tracker.UpdateRecord(Path.GetFileName(file), sha, out var duplicate);
                 if (!duplicate)
                 {
                     StoreVersion(fs, first);
