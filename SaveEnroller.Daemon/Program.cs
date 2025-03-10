@@ -15,7 +15,8 @@ namespace SaveEnroller.Daemon
                 var watcher = new Thread(() =>
                 {
                     var storage = Path.Combine(configDirectoryPath, ".SaveEnroller");
-                    var sw = new SaveWatcher(savesPath, storage, Path.Combine(storage, "track.csv"));
+                    var sw = new SaveWatcher(savesPath, storage, Path.Combine(storage, "track.csv"),
+                        Path.Combine(storage, "time.csv"));
                 });
                 watcher.Start();
                 mainProcess.WaitForExit();
@@ -25,7 +26,8 @@ namespace SaveEnroller.Daemon
                 var watcher = new Thread(() =>
                 {
                     var storage = Path.Combine(configDirectoryPath, ".SaveEnroller");
-                    var sw = new SaveWatcher(savesPath, storage, Path.Combine(storage, "track.csv"));
+                    var sw = new SaveWatcher(savesPath, storage, Path.Combine(storage, "track.csv"),
+                        Path.Combine(storage, "time.csv"));
                 });
                 watcher.Start();
                 Console.ReadLine();

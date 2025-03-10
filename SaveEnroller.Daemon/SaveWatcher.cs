@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Timers;
 
 namespace SaveEnroller.Daemon
 {
@@ -13,8 +14,9 @@ namespace SaveEnroller.Daemon
         private DirectoryInfo TargetStorageDirectory { get; set; }
         private DirectoryInfo VersionsDirectory { get; set; }
         private TrackHelper Tracker { get; set; }
+        private System.Timers.Timer CleanupTimer { get; set; }
 
-        public SaveWatcher(string savePath, string storagePath, string trackFile)
+        public SaveWatcher(string savePath, string storagePath, string trackFile, string timeFile)
         {
             FileSystemWatcher = new FileSystemWatcher
             {
@@ -27,6 +29,7 @@ namespace SaveEnroller.Daemon
             FileSystemWatcher.Filters.Add("*.cok");
             FileSystemWatcher.Filters.Add("*.cok.cid");
             FileSystemWatcher.Changed += OnChanged;
+            FileSystemWatcher.Deleted += OnDeleted;
             TargetStorageDirectory = new DirectoryInfo(storagePath);
             if (!TargetStorageDirectory.Exists)
             {
@@ -34,9 +37,20 @@ namespace SaveEnroller.Daemon
             }
 
             VersionsDirectory = TargetStorageDirectory.CreateSubdirectory("versions");
-            Tracker = new TrackHelper(trackFile);
+            Tracker = new TrackHelper(trackFile, timeFile);
 
+            CleanupTimer = new System.Timers.Timer(TimeSpan.FromMinutes(5).TotalMilliseconds)
+            {
+                AutoReset = true,
+            };
+            CleanupTimer.Elapsed += (_, _) => RunCleanup();
+            CleanupTimer.Start();
+
+            // Run initial scan
             ScanOnStart(savePath);
+
+            // Run initial cleanup after scan
+            RunCleanup();
         }
 
         private void ScanOnStart(string savePath)
@@ -64,9 +78,28 @@ namespace SaveEnroller.Daemon
             }
         }
 
+        /// <summary>
+        /// Handles file deletion events from the FileSystemWatcher.
+        /// Marks the file as deleted in the tracking system.
+        /// </summary>
+        /// <param name="sender">Source of the event</param>
+        /// <param name="e">Event data containing file path and change information</param>
+        private void OnDeleted(object sender, FileSystemEventArgs e)
+        {
+            Console.WriteLine($"File deleted: {e.FullPath}");
+            // Mark the file as deleted in the tracking system
+            Tracker.MarkFileAsDeleted(Path.GetFileName(e.FullPath));
+        }
+
+        /// <summary>
+        /// Handles file change events from the FileSystemWatcher.
+        /// Records the new file version and stores it if it's not a duplicate.
+        /// </summary>
+        /// <param name="sender">Source of the event</param>
+        /// <param name="e">Event data containing file path and change information</param>
         private void OnChanged(object sender, FileSystemEventArgs e)
         {
-            Console.WriteLine($"文件 {e.ChangeType}: {e.FullPath}");
+            Console.WriteLine($"File {e.ChangeType}: {e.FullPath}");
             var file = e.FullPath;
             try
             {
@@ -86,8 +119,14 @@ namespace SaveEnroller.Daemon
             }
         }
 
+        /// <summary>
+        /// Calculates the SHA1 hash of a file stream
+        /// </summary>
+        /// <param name="fs">The file stream to hash</param>
+        /// <returns>SHA1 hash as a hexadecimal string</returns>
         private string CalculateSha1(Stream fs)
         {
+            fs.Seek(0, SeekOrigin.Begin);
             var hash = SHA1.HashData(fs);
             return string.Concat(hash.Select(b => b.ToString("x2")));
         }
@@ -110,26 +149,27 @@ namespace SaveEnroller.Daemon
         /// <param name="isNewFile">Indicates if this is a new file or an update to an existing file</param>
         private void StoreVersion(Stream sourceStream, bool isNewFile)
         {
-            // 确保从文件开始读取
+            // Ensure reading from the beginning of the file
             sourceStream.Seek(0, SeekOrigin.Begin);
-            // 计算文件内容的 SHA1 哈希值
+            // Calculate SHA1 hash of the file content
             string sha1 = CalculateSha1(sourceStream);
 
-            // 根据 SHA1 查找对应的记录（确保 Tracker 中已存在该记录）
+            // Find the corresponding record in the tracker (ensure it exists)
             var record = Tracker.Records.Values.FirstOrDefault(r => r.Versions.LastOrDefault() == sha1);
             if (record == null)
             {
                 throw new Exception("Record not found for the given stream");
             }
+
             if (string.IsNullOrEmpty(sha1))
             {
                 throw new Exception("No version found in record");
             }
 
-            // 根据缩短后的 SHA1 构造目标版本文件路径
+            // Construct target version file path using shortened SHA1
             var versionPath = Path.Combine(VersionsDirectory.FullName, $"{ShortenSha1ForFilename(sha1)}.save");
 
-            // 如果该版本文件尚不存在，则直接从源流复制文件内容
+            // If this version file doesn't exist yet, copy content from source stream
             if (!File.Exists(versionPath))
             {
                 sourceStream.Seek(0, SeekOrigin.Begin);
@@ -176,6 +216,14 @@ namespace SaveEnroller.Daemon
             return memoryStream.ToArray();
         }
 
+        /// <summary>
+        /// Waits until a file is available for reading, with retry logic to handle locked files
+        /// </summary>
+        /// <param name="filePath">Path to the file to open</param>
+        /// <param name="retryDelayMilliseconds">Delay between retry attempts in milliseconds</param>
+        /// <param name="maxRetries">Maximum number of retry attempts</param>
+        /// <returns>An open FileStream for reading the file</returns>
+        /// <exception cref="Exception">Thrown if the file cannot be opened after the maximum retries</exception>
         private FileStream WaitUntilFileIsReady(string filePath, int retryDelayMilliseconds = 1000, int maxRetries = 10)
         {
             var retries = 0;
@@ -195,6 +243,24 @@ namespace SaveEnroller.Daemon
 
                     Thread.Sleep(retryDelayMilliseconds);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Runs the version cleanup process to manage disk space and retain important versions
+        /// according to the retention policy
+        /// </summary>
+        private void RunCleanup()
+        {
+            try
+            {
+                Console.WriteLine("Starting version cleanup process...");
+                Tracker.CleanupOldVersions(VersionsDirectory.FullName);
+                Console.WriteLine("Version cleanup completed successfully");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error during version cleanup: {ex.Message}");
             }
         }
     }
