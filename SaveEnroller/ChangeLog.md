@@ -1,5 +1,3 @@
-# 0.0.5
+# 1.0.0
 
-## Feature
-
-- Add retention policy
+- Support game 1.3.6
